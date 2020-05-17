@@ -1,0 +1,12 @@
+{
+  "name": "infra-management-tf",
+  "version": "0.1.0",
+  "description": "This package contains TS code which can be invoked to generate TF code.",
+  "dependencies": {
+    "io-ts": "^2.2.2",
+    "fp-ts": "^2.5.4"
+  },
+  "devDependencies": {
+    "typescript": "^3.8.3"
+  }
+}

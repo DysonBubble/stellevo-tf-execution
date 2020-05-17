@@ -1,0 +1,1 @@
+export const GetPathFromProviderName = ( provider: string ) => `../../providers/${provider}`;

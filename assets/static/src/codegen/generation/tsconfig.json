@@ -1,0 +1,24 @@
+{
+  "extends": "../../../tsconfig.project.json",
+  "include": [
+    "./*.ts"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "../../../ts_out"
+  },
+  "references": [
+    {
+      "path": "../../api/configuration"
+    },
+    {
+      "path": "../common/platforms"
+    },
+    {
+      "path": "../common/providers"
+    },
+    {
+      "path": "../../api/common/providers/schemas"
+    },
+  ]
+}

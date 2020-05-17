@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.project.json",
+  "include": [
+    "./*.ts"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "../../ts_out"
+  },
+  "references": [
+    {
+      "path": "../config"
+    },
+    {
+      "path": "../codegen/generation"
+    }
+  ]
+}
