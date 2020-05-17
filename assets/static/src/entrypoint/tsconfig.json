@@ -9,7 +9,7 @@
   },
   "references": [
     {
-      "path": "../config"
+      "path": "../config/exports"
     },
     {
       "path": "../codegen/generation"

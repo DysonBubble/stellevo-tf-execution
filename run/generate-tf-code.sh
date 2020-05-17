@@ -61,6 +61,7 @@ for PROVIDER_NAME in "${!PLATFORM_PROVIDERS[@]}"; do
   cp -r "${PROVIDER_DL_DIR}/outputs/api/." "${TARGET_DIR}/src/api/providers/${PROVIDER_NAME}/"
   mkdir -p "${TARGET_DIR}/src/codegen/providers/${PROVIDER_NAME}"
   cp -r "${PROVIDER_DL_DIR}/outputs/codegen/." "${TARGET_DIR}/src/codegen/providers/${PROVIDER_NAME}/"
+  rm -rf "${PROVIDER_DL_DIR}"
 done
 
 # 6. Generate files in api/common/platforms/resources folder
@@ -107,24 +108,26 @@ for PLATFORM_INDEX in "${!ALL_PLATFORM_NAMES[@]}"; do
 done
 
 # 10. Copy config code files to config folder
-readarray -d '' ALL_CONFIG_FILES < <(find "${CONFIG_REPO_DIR}/config/src" -name '*.ts' -printf "%P\0")
+readarray -d '' ALL_CONFIG_FILES < <(find "${CONFIG_REPO_DIR}/config" -name '*.ts' -printf "%P\0")
 TARGET_CONFIG_DIR="${TARGET_DIR}/src/config"
 mkdir -p "${TARGET_CONFIG_DIR}"
 # We must do cd for cp to work properly. We could spawn new shell and do cd within, but then passing array argument would be pure hell.
 OLD_CUR_DIR="$(pwd)"
-cd "${CONFIG_REPO_DIR}/config/src/"; printf '%s\0' "${ALL_CONFIG_FILES[@]}" | xargs -0 cp --parent -t "${TARGET_CONFIG_DIR}"; cd "${OLD_CUR_DIR}"
+cd "${CONFIG_REPO_DIR}/config/"; printf '%s\0' "${ALL_CONFIG_FILES[@]}" | xargs -0 cp --parent -t "${TARGET_CONFIG_DIR}"; cd "${OLD_CUR_DIR}"
 
-# 11. Generate tsconfig.json file for config
+# 11. Generate tsconfig.json file for config exports
+# TODO need to do this also for config libs
 docker run \
   --rm \
   -v "${ASSETS_DIR}/codegen/:/project/:rw" \
-  -v "${TARGET_DIR}/src/config/:/output/:rw" \
+  -v "${TARGET_DIR}/src/config/exports/:/output/:rw" \
   --entrypoint sh \
   -w /project/ \
   "${NODE_IMAGE}" \
   -c 'echo '"'"'export const allPlatforms = [...new Set<string>(['"$(printf '"%s", ' "${ALL_PLATFORM_NAMES[@]}")"'])];'"'"' > src/config/platforms.ts && node node_modules/.bin/ts-node src/config/generate-tsconfig.ts > /output/tsconfig.json'
 
 # 12. Generate entrypoint TS file
+readarray -d '' ALL_CONFIG_EXPORT_FILES < <(find "${CONFIG_REPO_DIR}/config/exports" -name '*.ts' -printf "%P\0")
 docker run \
   --rm \
   -v "${ASSETS_DIR}/codegen/:/project/:rw" \
@@ -132,7 +135,7 @@ docker run \
   --entrypoint sh \
   -w /project/ \
   "${NODE_IMAGE}" \
-  -c 'echo '"'"'export const allConfigFilePaths = [...new Set<string>(['"$(printf '"%s", ' "${ALL_CONFIG_FILES[@]}")"'])];'"'"' > src/entrypoint/config-paths.ts && node node_modules/.bin/ts-node src/entrypoint/generate-ts.ts > /output/index.ts'
+  -c 'echo '"'"'export const allConfigFilePaths = [...new Set<string>(['"$(printf '"%s", ' "${ALL_CONFIG_EXPORT_FILES[@]}")"'])];'"'"' > src/entrypoint/config-paths.ts && node node_modules/.bin/ts-node src/entrypoint/generate-ts.ts > /output/index.ts'
 
 # 13. Run entrypoint TS file.
 # Note that ts-node *deletes* composite option from tsconfig ( https://github.com/TypeStrong/ts-node/issues/811 , the quoted code in the issue), so all validation that various files don't reference forbidden ones is gone.

@@ -26,7 +26,7 @@ const getArray = ( config: api.InfraConfigurationExport ) => {
   logIfNeeded( codeGenResult.resources );
 } );
 `
-export const GetPathFromConfigFilePath = ( name: string ) => `../config/${name}`;
+export const GetPathFromConfigFilePath = ( name: string ) => `../config/exports/${name}`;
 
 export const GetConfigImportName = ( idx: number ) => `config_${idx}`;
 
