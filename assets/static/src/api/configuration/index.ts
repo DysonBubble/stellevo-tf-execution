@@ -14,6 +14,13 @@ export const PrefixedInfraConfiguration = schema.intersection( [
   } )
 ] );
 export type PrefixedInfraConfiguration = schema.TypeOf<typeof PrefixedInfraConfiguration>;
+export const PrefixedInfraConfigurationArray = schema.readonlyArray( PrefixedInfraConfiguration );
+export type PrefixedInfraConfigurationArray = schema.TypeOf<typeof PrefixedInfraConfigurationArray>;
 
 // This is the type exported by .ts files in actual infra configuration
-export type InfraConfigurationExport = ReadonlyArray<PrefixedInfraConfiguration> | ( () => ReadonlyArray<PrefixedInfraConfiguration> );
+// <[typeof PrefixedInfraConfigurationArray, () => typeof PrefixedInfraConfigurationArray]>
+export const InfraConfigurationExport = schema.union( [
+  PrefixedInfraConfigurationArray,
+  schema.Function
+] );
+export type InfraConfigurationExport = ReadonlyArray<PrefixedInfraConfiguration> | ( () => ReadonlyArray<PrefixedInfraConfiguration> ); // schema.TypeOf<typeof InfraConfigurationExport>;

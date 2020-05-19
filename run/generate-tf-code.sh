@@ -147,7 +147,4 @@ docker run \
   -w /project/ \
   "${NODE_IMAGE}" \
   -c \
-  'node node_modules/.bin/tsc --build && node ts_out/entrypoint > code.tf'
-
-echo "GREAT SUCCESS!"
-cat "${TARGET_DIR}/code.tf"
+  'node node_modules/.bin/tsc --build && mkdir -p tf_out && node --unhandled-rejections=strict ts_out/entrypoint'

@@ -4,30 +4,41 @@ export const GenerateCommonPlatformResourcesCode = ( allConfigFilePaths: Readonl
 
 import * as codegen from "../codegen/generation";
 import * as api from "../api/configuration";
-${allConfigFilePaths.reduce( ( prevString, configFilePath, idx ) => `${prevString}
-import * as ${ GetConfigImportName( idx )} from "${GetPathFromConfigFilePath( configFilePath )}";`, "" )}
+import { PathReporter } from "io-ts/lib/PathReporter";
+import * as fs from 'fs/promises';
 
-const logIfNeeded = ( str: string ) => {
-  if ( str.length > 0 ) {
-    console.log( str );
+// Few helpers
+const checkOrThrow = ( path: string, value: unknown ) => {
+  var errorOrResult = api.PrefixedInfraConfigurationArray.decode( value );
+  switch ( errorOrResult._tag ) {
+    case 'Left':
+      console.error( PathReporter.report( errorOrResult ) );
+      throw Error( \`Dynamic configuration export in file \${ path } was not of correct shape.\` );
+    case 'Right':
+      return errorOrResult.right;
   }
+}
+
+const getArray = ( filePath: string, config: api.InfraConfigurationExport ) => checkOrThrow( filePath, typeof config === 'function' ? config() : config );
+
+const appendWithNewLine = ( prev: string, cur: string ) => cur.length <= 0 ? prev : \`\${prev}\${cur.trim()}\\n\`;
+
+// Async main function
+const main = async () => {
+  const fullCodeGenResult = [${allConfigFilePaths.reduce( ( prevString, configFilePath ) => `${prevString}
+    ...getArray("${configFilePath}", (await import("${GetPathFromConfigFilePath( configFilePath )}")).Configuration),`, "" )}
+  ].map( ( config ) => codegen.GetTerraformCode( config ) )
+    .reduce( ( prev, codeGenResult ) => ( { resources: appendWithNewLine(prev.resources, codeGenResult.resources), dataSources: appendWithNewLine(prev.dataSources, codeGenResult.dataSources) } ), { resources: "", dataSources: "" } );
+
+  await Promise.all( [
+    fs.writeFile( "./tf_out/resources.tf", fullCodeGenResult.resources ),
+    fs.writeFile( "./tf_out/data_sources.tf", fullCodeGenResult.dataSources )
+  ] );
 };
 
-const getArray = ( config: api.InfraConfigurationExport ) => {
-  return typeof config === 'function' ? config() : config;
-};
-
-[${allConfigFilePaths.reduce( ( prevString, _, idx ) => `${prevString}
-...getArray(${GetConfigImportName( idx )}.Configuration),`, "" )}
-].forEach( ( config ) => {
-  const codeGenResult = codegen.GetTerraformCode( config );
-
-  logIfNeeded( codeGenResult.dataSources );
-  logIfNeeded( codeGenResult.resources );
-} );
+// Start async main function
+main();
 `
 export const GetPathFromConfigFilePath = ( name: string ) => `../config/exports/${name}`;
-
-export const GetConfigImportName = ( idx: number ) => `config_${idx}`;
 
 console.log( GenerateCommonPlatformResourcesCode( configFilePathImport.allConfigFilePaths.map( path => path.substr( 0, path.lastIndexOf( '.ts' ) ) ) ) ); // Doing stuff like x.substr(0, x.lastIndexOf) is pain in Bash, so just do it here.
