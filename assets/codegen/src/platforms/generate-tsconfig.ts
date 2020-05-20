@@ -10,7 +10,7 @@ export const GenerateCommonPlatformTSConfig = ( dependantPlatforms: ReadonlyArra
     "composite": true,
     "outDir": "../../../ts_out"
   },
-  "references": [{ "path": "../../api/common/platforms" }] // allPlatformProviders.map( ( provider ) => ( { "path": common.GetPathFromProviderName( provider, "" ) } ) )
+  "references": [{ "path": "../../api/common/platforms/util" }]
 } )
 
 console.log( JSON.stringify( GenerateCommonPlatformTSConfig( [...new Set<string>( dependantPlatformImport.dependantPlatforms )] ), undefined, 2 ) );

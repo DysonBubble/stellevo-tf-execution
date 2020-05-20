@@ -9,6 +9,10 @@ import * as ${ provider} from "${common.GetPathFromProviderName( provider )}";`,
 export const AllResources = {${ allPlatformProviders.reduce( ( prevString, provider ) => `${prevString}
   ...${provider}.AllResources`, "" )}
 } as const;
+
+export const AllDataSources = {${ allPlatformProviders.reduce( ( prevString, provider ) => `${prevString}
+  ...${provider}.AllDataSources`, "" )}
+} as const;
 `
 
 console.log( GenerateCommonPlatformResourcesCode( collectedPlatformProviders.allProviders ) );

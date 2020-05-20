@@ -1,13 +1,19 @@
 import * as platform_schemas from "../common/platforms/schemas";
 import * as schema from "io-ts";
 
-export const InfraConfiguration = schema.partial( platform_schemas.AllSchemas );
-export type InfraConfiguration = schema.TypeOf<typeof InfraConfiguration>;
+export const ResourceConfiguration = schema.partial( platform_schemas.AllSchemas );
+export type ResourceConfiguration = schema.TypeOf<typeof ResourceConfiguration>;
+
+export const DataSourceConfiguration = schema.partial( platform_schemas.AllDataSources );
+export type DataSourceConfiguration = schema.TypeOf<typeof DataSourceConfiguration>;
 
 // This is the type accepted by code generator
 export const PrefixedInfraConfiguration = schema.intersection( [
   schema.type( {
-    configuration: InfraConfiguration
+    configuration: schema.refinement( schema.partial( {
+      resources: ResourceConfiguration,
+      data_sources: DataSourceConfiguration
+    } ), c => ( c.resources !== null && c.resources !== undefined ) || ( c.data_sources !== null && c.data_sources !== undefined ) )
   } ),
   schema.partial( {
     prefix: schema.string

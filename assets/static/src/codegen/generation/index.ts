@@ -2,36 +2,48 @@ import * as api from "../../api/configuration";
 import * as codegen from "../common/platforms";
 import * as codegen_common from "../common/providers";
 import * as schema_common from "../../api/common/providers/schemas";
-import { PathReporter } from "io-ts/lib/PathReporter";
+import * as schema from "io-ts";
 
+// The config is assumed to be already validated by the caller
 export const GetTerraformCode = ( config: api.PrefixedInfraConfiguration ) => {
+  const retVal = Object.entries( config.configuration.resources ?? {} )
+    .reduce( ( curState, [resource_type, resources] ) => {
+      return GetTerraformCodeForResourcesOrDataSources( "resource", config.prefix, api.ResourceConfiguration, curState, resource_type, resources );
+    }, { dataSources: "", resources: "" } );
 
-  var errorOrResult = api.PrefixedInfraConfiguration.decode( config );
-  switch ( errorOrResult._tag ) {
-    case 'Left':
-      console.error( PathReporter.report( errorOrResult ) );
-      throw Error( 'Configuration was not of correct shape.' );
-    case 'Right':
-      config = errorOrResult.right;
-      return Object.entries( config.configuration )
-        .reduce( ( curState, [resource_type, resources] ) => {
-          const newDataSources: string[] = []
-          const newResources: string[] = []
-          const resourceSchema = api.InfraConfiguration.props[resource_type as keyof typeof api.InfraConfiguration.props].codomain as unknown as codegen_common.TResourceSchemas;
-          const propGenState = CreatePropertyGenerationState( {
-            indentString: "  ",
-            currentIndentLevel: 0,
-            addDataSourceCode: ( dataSourceCode ) => newDataSources.push( dataSourceCode )
-          } );
-          for ( const resource_name in resources ) {
-            newResources.push( `resource "${resource_type}" "${config.prefix ?? ""}${resource_name}" ${GeneratePropertyCode( resource_type, resourceSchema, resources[resource_name], propGenState )}` )
-          }
+  return {
+    resources: retVal.resources,
+    dataSources: `${retVal.dataSources}\n${Object.entries( config.configuration.data_sources ?? {} )
+      .reduce( ( curState, [data_source_type, dataSources] ) => {
+        const code = GetTerraformCodeForResourcesOrDataSources( "data", config.prefix, api.DataSourceConfiguration, { resources: curState, dataSources: "" }, data_source_type, dataSources );
+        return appendWithNewLine( curState, code.resources + "\n" + code.dataSources );
+      }, "" )}`
+  };
+}
 
-          curState.dataSources = newDataSources.reduce( ( prev, cur ) => prev + "\n" + cur, curState.dataSources );
-          curState.resources = newResources.reduce( ( prev, cur ) => prev + "\n" + cur, curState.resources );
-          return curState;
-        }, { dataSources: "", resources: "" } );
+export const appendWithNewLine = ( prev: string, cur: string ) => {
+  cur = cur.trim();
+  return cur.length <= 0 ? prev : `${prev}${cur}\n`;
+};
+
+const GetTerraformCodeForResourcesOrDataSources = ( tf_kind: "resource" | "data", prefix: string | undefined, lookupSchema: schema.PartialC<{ [p: string]: schema.DictionaryType<schema.StringC, schema.Mixed> }>, curState: { resources: string, dataSources: string }, resource_type: string, resources: { [k: string]: unknown } | undefined ) => {
+  const newDataSources: string[] = []
+  const newResources: string[] = []
+  // TODO we can have situation where resource_type is not in props, because lookup schema is partial so it allows extra stuff, which we iterate here...
+  // One solution could be iterate lookupSchema instead of given object.
+  const resourceSchema = lookupSchema.props[resource_type as keyof typeof api.ResourceConfiguration.props].codomain as unknown as codegen_common.TResourceSchemas;
+  const propGenState = CreatePropertyGenerationState( {
+    indentString: "  ",
+    currentIndentLevel: 0,
+    addDataSourceCode: ( dataSourceCode ) => newDataSources.push( dataSourceCode )
+  } );
+  for ( const resource_name in resources ) {
+    newResources.push( `${tf_kind} "${resource_type}" "${prefix ?? ""}${resource_name}" ${GeneratePropertyCode( resource_type, resourceSchema, resources[resource_name], propGenState )}` )
   }
+
+  curState.dataSources = newDataSources.reduce( ( prev, cur ) => appendWithNewLine( prev, cur ), curState.dataSources );
+  curState.resources = newResources.reduce( ( prev, cur ) => appendWithNewLine( prev, cur ), curState.resources );
+  return curState;
 }
 
 const GetPropertySchemas = ( resourceSchema: codegen_common.TResourceSchemas ) => {
