@@ -13,11 +13,11 @@ export const GetTerraformCode = ( config: api.PrefixedInfraConfiguration ) => {
 
   return {
     resources: retVal.resources,
-    dataSources: `${retVal.dataSources}\n${Object.entries( config.configuration.data_sources ?? {} )
+    dataSources: `${appendWithNewLine( retVal.dataSources, Object.entries( config.configuration.data_sources ?? {} )
       .reduce( ( curState, [data_source_type, dataSources] ) => {
         const code = GetTerraformCodeForResourcesOrDataSources( "data", config.prefix, api.DataSourceConfiguration, { resources: curState, dataSources: "" }, data_source_type, dataSources );
         return appendWithNewLine( curState, code.resources + "\n" + code.dataSources );
-      }, "" )}`
+      }, "" ) )}`
   };
 }
 
@@ -29,20 +29,25 @@ export const appendWithNewLine = ( prev: string, cur: string ) => {
 const GetTerraformCodeForResourcesOrDataSources = ( tf_kind: "resource" | "data", prefix: string | undefined, lookupSchema: schema.PartialC<{ [p: string]: schema.DictionaryType<schema.StringC, schema.Mixed> }>, curState: { resources: string, dataSources: string }, resource_type: string, resources: { [k: string]: unknown } | undefined ) => {
   const newDataSources: string[] = []
   const newResources: string[] = []
-  // TODO we can have situation where resource_type is not in props, because lookup schema is partial so it allows extra stuff, which we iterate here...
+  // We can have situation where resource_type is not in props, because lookup schema is fully partial so it allows extra stuff, which we iterate here...
   // One solution could be iterate lookupSchema instead of given object.
-  const resourceSchema = lookupSchema.props[resource_type as keyof typeof api.ResourceConfiguration.props].codomain as unknown as codegen_common.TResourceSchemas;
-  const propGenState = CreatePropertyGenerationState( {
-    indentString: "  ",
-    currentIndentLevel: 0,
-    addDataSourceCode: ( dataSourceCode ) => newDataSources.push( dataSourceCode )
-  } );
-  for ( const resource_name in resources ) {
-    newResources.push( `${tf_kind} "${resource_type}" "${prefix ?? ""}${resource_name}" ${GeneratePropertyCode( resource_type, resourceSchema, resources[resource_name], propGenState )}` )
-  }
+  // Another is to just check if we have the corresponding schema using null-coalescing ?. -operator after lookup, and checking the result
+  const resourceSchema = lookupSchema.props[resource_type as keyof typeof api.ResourceConfiguration.props]?.codomain as unknown as codegen_common.TResourceSchemas;
+  if ( resourceSchema ) {
+    const propGenState = CreatePropertyGenerationState( {
+      indentString: "  ",
+      currentIndentLevel: 0,
+      addDataSourceCode: ( dataSourceCode ) => newDataSources.push( dataSourceCode )
+    } );
+    for ( const resource_name in resources ) {
+      newResources.push( `${tf_kind} "${resource_type}" "${`${prefix ?? ""}${resource_name}`.replace( /"/g, "\\\"" )}" ${GeneratePropertyCode( resource_type, resourceSchema, resources[resource_name], propGenState )}` )
+    }
 
-  curState.dataSources = newDataSources.reduce( ( prev, cur ) => appendWithNewLine( prev, cur ), curState.dataSources );
-  curState.resources = newResources.reduce( ( prev, cur ) => appendWithNewLine( prev, cur ), curState.resources );
+    curState.dataSources = newDataSources.reduce( ( prev, cur ) => appendWithNewLine( prev, cur ), curState.dataSources );
+    curState.resources = newResources.reduce( ( prev, cur ) => appendWithNewLine( prev, cur ), curState.resources );
+  } else {
+    // TODO throw an error... ?
+  }
   return curState;
 }
 

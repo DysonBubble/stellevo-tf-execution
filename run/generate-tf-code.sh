@@ -17,13 +17,24 @@ ROOT_DIR="$(readlink -f "$(realpath "${SCRIPT_DIR}/..")")"
 ASSETS_DIR="${ROOT_DIR}/assets"
 
 # 1. Copy static files to target dir
-mkdir "${TARGET_DIR}"
+mkdir -p "${TARGET_DIR}"
 cp -r "${ASSETS_DIR}/static/." "${TARGET_DIR}"
 
 # 2. TODO generate package.json file (utilize packages folder inside config repository)
+NODE_IMAGE="node:$(cat "${CONFIG_REPO_DIR}/versions/run/node.txt")"
+CODEGEN_DIR="${ASSETS_DIR}/codegen"
+if [[ ! -d "${CODEGEN_DIR}/node_modules" ]]; then
+  # pre-2. Restore packages
+  docker run \
+    --rm \
+    -v "${CODEGEN_DIR}/:/project/:rw" \
+    --entrypoint npm \
+    -w /project/ \
+    "${NODE_IMAGE}" \
+    install
+fi
 
 # 3. Install the NPM modules for the target directory
-NODE_IMAGE="node:$(cat "${CONFIG_REPO_DIR}/versions/run/node.txt")"
 docker run \
   --rm \
   -v "${TARGET_DIR}/:/project/:rw" \
@@ -71,17 +82,17 @@ done
 mkdir -p "${TARGET_DIR}/src/api/common/platforms/resources" "${TARGET_DIR}/src/api/common/platforms/schemas"
 docker run \
   --rm \
-  -v "${ASSETS_DIR}/codegen/:/project/:rw" \
+  -v "${CODEGEN_DIR}/:/project/:rw" \
   -v "${TARGET_DIR}/src/api/common/platforms/:/output/:rw" \
   --entrypoint sh \
   -w /project/ \
   "${NODE_IMAGE}" \
-  -c 'npm install && echo '"'"'export const allProviders = [...new Set<string>(['"$(printf '"%s", ' "${!PLATFORM_PROVIDERS[@]}")"'])];'"'"' > src/providers/providers.ts && node node_modules/.bin/ts-node src/providers/resources/generate-ts.ts > /output/resources/index.ts && node node_modules/.bin/ts-node src/providers/resources/generate-tsconfig.ts > /output/resources/tsconfig.json && node node_modules/.bin/ts-node src/providers/schemas/generate-ts.ts > /output/schemas/index.ts && node node_modules/.bin/ts-node src/providers/schemas/generate-tsconfig.ts > /output/schemas/tsconfig.json'
+  -c 'echo '"'"'export const allProviders = [...new Set<string>(['"$(printf '"%s", ' "${!PLATFORM_PROVIDERS[@]}")"'])];'"'"' > src/providers/providers.ts && node node_modules/.bin/ts-node src/providers/resources/generate-ts.ts > /output/resources/index.ts && node node_modules/.bin/ts-node src/providers/resources/generate-tsconfig.ts > /output/resources/tsconfig.json && node node_modules/.bin/ts-node src/providers/schemas/generate-ts.ts > /output/schemas/index.ts && node node_modules/.bin/ts-node src/providers/schemas/generate-tsconfig.ts > /output/schemas/tsconfig.json'
 
 # 7. Generate files in codegen/common/platform folder
 docker run \
   --rm \
-  -v "${ASSETS_DIR}/codegen/:/project/:ro" \
+  -v "${CODEGEN_DIR}/:/project/:ro" \
   -v "${TARGET_DIR}/src/codegen/common/platforms/:/output/:rw" \
   --entrypoint sh \
   -w /project/ \
@@ -99,7 +110,7 @@ for PLATFORM_INDEX in "${!ALL_PLATFORM_NAMES[@]}"; do
   # TODO when platforms can depend on each other, this generation will make more sense
   docker run \
     --rm \
-    -v "${ASSETS_DIR}/codegen/:/project/:rw" \
+    -v "${CODEGEN_DIR}/:/project/:rw" \
     -v "${TARGET_PLATFORM_DIR}/:/output/:rw" \
     --entrypoint sh \
     -w /project/ \
@@ -119,7 +130,7 @@ cd "${CONFIG_REPO_DIR}/config/"; printf '%s\0' "${ALL_CONFIG_FILES[@]}" | xargs 
 # TODO need to do this also for config libs
 docker run \
   --rm \
-  -v "${ASSETS_DIR}/codegen/:/project/:rw" \
+  -v "${CODEGEN_DIR}/:/project/:rw" \
   -v "${TARGET_DIR}/src/config/exports/:/output/:rw" \
   --entrypoint sh \
   -w /project/ \
@@ -130,7 +141,7 @@ docker run \
 readarray -d '' ALL_CONFIG_EXPORT_FILES < <(find "${CONFIG_REPO_DIR}/config/exports" -name '*.ts' -printf "%P\0")
 docker run \
   --rm \
-  -v "${ASSETS_DIR}/codegen/:/project/:rw" \
+  -v "${CODEGEN_DIR}/:/project/:rw" \
   -v "${TARGET_DIR}/src/entrypoint/:/output/:rw" \
   --entrypoint sh \
   -w /project/ \

@@ -1,7 +1,7 @@
 {
-  "name": "infra-management-tf",
+  "name": "infra-management-tf-codegen",
   "version": "0.1.0",
-  "description": "This package contains TS code which can be invoked to generate TF code from configuration",
+  "description": "This package contains TS code which will generate some plumbing code for Stellevo configuration repository in order to create TF code.",
   "dependencies": {},
   "devDependencies": {
     "typescript": "^3.8.3",

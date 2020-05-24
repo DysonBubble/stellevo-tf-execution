@@ -10,9 +10,9 @@ export const SchemaInteger = schema.Integer; // Integer is deprecated, but schem
 
 export const SchemaReal = schema.number;
 
-export const SchemaList = schema.array;
+export const SchemaList = schema.readonlyArray; // With just 'array' we can't assign our configs which have arrays using "as const"
 
-export const SchemaSet = schema.array;
+export const SchemaSet = schema.readonlyArray; // With just 'array' we can't assign our configs which have arrays using "as const"
 
 export const SchemaMap = <C extends schema.Mixed>( codomain: C, name?: string ) => schema.dictionary( schema.string, codomain, name );
 

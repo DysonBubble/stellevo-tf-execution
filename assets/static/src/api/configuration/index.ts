@@ -7,13 +7,16 @@ export type ResourceConfiguration = schema.TypeOf<typeof ResourceConfiguration>;
 export const DataSourceConfiguration = schema.partial( platform_schemas.AllDataSources );
 export type DataSourceConfiguration = schema.TypeOf<typeof DataSourceConfiguration>;
 
+export const TerraformConfiguration = schema.partial( {
+  resources: ResourceConfiguration,
+  data_sources: DataSourceConfiguration
+} ) //, c => ( c.resources !== null && c.resources !== undefined ) || ( c.data_sources !== null && c.data_sources !== undefined ) );
+export type TerraformConfiguration = schema.TypeOf<typeof TerraformConfiguration>;
+
 // This is the type accepted by code generator
 export const PrefixedInfraConfiguration = schema.intersection( [
   schema.type( {
-    configuration: schema.refinement( schema.partial( {
-      resources: ResourceConfiguration,
-      data_sources: DataSourceConfiguration
-    } ), c => ( c.resources !== null && c.resources !== undefined ) || ( c.data_sources !== null && c.data_sources !== undefined ) )
+    configuration: TerraformConfiguration
   } ),
   schema.partial( {
     prefix: schema.string
