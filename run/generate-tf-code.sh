@@ -17,7 +17,7 @@ ROOT_DIR="$(readlink -f "$(realpath "${SCRIPT_DIR}/..")")"
 ASSETS_DIR="${ROOT_DIR}/assets"
 
 # 1. Copy static files to target dir
-mkdir -p "${TARGET_DIR}"
+mkdir "${TARGET_DIR}"
 cp -r "${ASSETS_DIR}/static/." "${TARGET_DIR}"
 
 # 2. TODO generate package.json file (utilize packages folder inside config repository)
