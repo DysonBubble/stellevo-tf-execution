@@ -6,7 +6,11 @@ SCRIPT_PATH="$(readlink -f "$0")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 
 CONFIG_REPO_DIR="$(readlink -f "$(realpath "$1")")"
-TARGET_DIR="$(readlink -f "$(realpath "$2")")"
+if [[ -z "$2" ]]; then
+  TARGET_DIR="${CONFIG_REPO_DIR}"
+else
+  TARGET_DIR="$(readlink -f "$(realpath "$2")")"
+fi
 
 if [[ -z "${TARGET_DIR}" ]] || [[ -z "${CONFIG_REPO_DIR}" ]]; then
   echo "Please specify configuration directory as first argument, and target directory as second argument." 1>&2
@@ -17,7 +21,9 @@ ROOT_DIR="$(readlink -f "$(realpath "${SCRIPT_DIR}/..")")"
 ASSETS_DIR="${ROOT_DIR}/assets"
 
 # 1. Copy static files to target dir
-mkdir "${TARGET_DIR}"
+if [[ "${TARGET_DIR}" != "${CONFIG_REPO_DIR}" ]]; then
+  mkdir "${TARGET_DIR}"
+fi
 cp -r "${ASSETS_DIR}/static/." "${TARGET_DIR}"
 
 # 2. TODO generate package.json file (utilize packages folder inside config repository)
@@ -119,12 +125,15 @@ for PLATFORM_INDEX in "${!ALL_PLATFORM_NAMES[@]}"; do
 done
 
 # 10. Copy config code files to config folder
-readarray -d '' ALL_CONFIG_FILES < <(find "${CONFIG_REPO_DIR}/config" -name '*.ts' -printf "%P\0")
-TARGET_CONFIG_DIR="${TARGET_DIR}/src/config"
-mkdir -p "${TARGET_CONFIG_DIR}"
-# We must do cd for cp to work properly. We could spawn new shell and do cd within, but then passing array argument would be pure hell.
-OLD_CUR_DIR="$(pwd)"
-cd "${CONFIG_REPO_DIR}/config/"; printf '%s\0' "${ALL_CONFIG_FILES[@]}" | xargs -0 cp --parent -t "${TARGET_CONFIG_DIR}"; cd "${OLD_CUR_DIR}"
+CONFIG_FILES_DIR="${CONFIG_REPO_DIR}/src/config"
+if [[ "${TARGET_DIR}" != "${CONFIG_REPO_DIR}" ]]; then
+  readarray -d '' ALL_CONFIG_FILES < <(find "${CONFIG_FILES_DIR}" -name '*.ts' -printf "%P\0")
+  TARGET_CONFIG_DIR="${TARGET_DIR}/src/config"
+  mkdir -p "${TARGET_CONFIG_DIR}"
+  # We must do cd for cp to work properly. We could spawn new shell and do cd within, but then passing array argument would be pure hell.
+  OLD_CUR_DIR="$(pwd)"
+  cd "${CONFIG_FILES_DIR}/"; printf '%s\0' "${ALL_CONFIG_FILES[@]}" | xargs -0 cp --parent -t "${TARGET_CONFIG_DIR}"; cd "${OLD_CUR_DIR}"
+fi
 
 # 11. Generate tsconfig.json file for config exports
 # TODO need to do this also for config libs
@@ -138,7 +147,7 @@ docker run \
   -c 'echo '"'"'export const allPlatforms = [...new Set<string>(['"$(printf '"%s", ' "${ALL_PLATFORM_NAMES[@]}")"'])];'"'"' > src/config/platforms.ts && node node_modules/.bin/ts-node src/config/generate-tsconfig.ts > /output/tsconfig.json'
 
 # 12. Generate entrypoint TS file
-readarray -d '' ALL_CONFIG_EXPORT_FILES < <(find "${CONFIG_REPO_DIR}/config/exports" -name '*.ts' -printf "%P\0")
+readarray -d '' ALL_CONFIG_EXPORT_FILES < <(find "${CONFIG_FILES_DIR}/exports" -name '*.ts' -printf "%P\0")
 docker run \
   --rm \
   -v "${CODEGEN_DIR}/:/project/:rw" \
