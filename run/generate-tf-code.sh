@@ -6,10 +6,11 @@ SCRIPT_PATH="$(readlink -f "$0")"
 SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
 
 CONFIG_REPO_DIR="$(readlink -f "$(realpath "$1")")"
-if [[ -z "$2" ]]; then
-  TARGET_DIR="${CONFIG_REPO_DIR}"
+TARGET_DIR="$(readlink -f "$(realpath "$2")")"
+if [[ -z "$3" ]]; then
+  CACHE_DIR="${TARGET_DIR}/stellevo_cache"
 else
-  TARGET_DIR="$(readlink -f "$(realpath "$2")")"
+  CACHE_DIR="$(readlink -f "$(realpath "$3")")"
 fi
 
 if [[ -z "${TARGET_DIR}" ]] || [[ -z "${CONFIG_REPO_DIR}" ]]; then
@@ -20,13 +21,66 @@ fi
 ROOT_DIR="$(readlink -f "$(realpath "${SCRIPT_DIR}/..")")"
 ASSETS_DIR="${ROOT_DIR}/assets"
 
-# 1. Copy static files to target dir
+# Using -u with cp was also considered, but it's maybe better to overwrite possibly newer stuff with framework supplied files... ?
+echo "Copying static files to target directory..."
 if [[ "${TARGET_DIR}" != "${CONFIG_REPO_DIR}" ]]; then
   mkdir "${TARGET_DIR}"
 fi
-cp -r "${ASSETS_DIR}/static/." "${TARGET_DIR}"
+cp --preserve=timestamps -r "${ASSETS_DIR}/static/." "${TARGET_DIR}"
+echo "Done with copying static files to target directory."
 
-# 2. TODO generate package.json file (utilize packages folder inside config repository)
+echo "Collecting platforms..."
+readarray -d '' ALL_PLATFORM_NAMES < <(find "${CONFIG_REPO_DIR}/platforms" -mindepth 1 -maxdepth 1 -type d -printf "%f\0")
+declare -A PLATFORM_PROVIDERS
+PLATFORM_DIRS=()
+for PLATFORM_NAME in "${ALL_PLATFORM_NAMES[@]}"; do
+  CUR_PLATFORM_DIR="$(echo -n "$(cat "${CONFIG_REPO_DIR}/platforms/${PLATFORM_NAME}/location.txt" | head -n 1)")"
+  if [[ -z "${CUR_PLATFORM_DIR##*:*}" ]]; then # If location has ':' in it, it is interpreted as url
+    CUR_PLATFORM_URL="${CUR_PLATFORM_DIR}"
+    CUR_PLATFORM_VERSION="$(cat "${CONFIG_REPO_DIR}/platforms/${PLATFORM_NAME}/version.txt")"
+    CUR_PLATFORM_DIR="${CACHE_DIR}/platforms/${PLATFORM_NAME}/${CUR_PLATFORM_VERSION}"
+    if [[ ! -d "${CUR_PLATFORM_DIR}" ]]; then # If platform repository has not been cached before
+      # Get the platform repository using git clone
+      git clone --depth 1 --branch "${CUR_PLATFORM_VERSION}" "${CUR_PLATFORM_URL}" "${CUR_PLATFORM_DIR}"
+    fi
+  else
+    # Location is directory
+    CUR_PLATFORM_DIR="$(readlink -f "$(realpath "${CUR_PLATFORM_DIR}")")"
+  fi
+  readarray -d '' CUR_PLATFORM_PROVIDERS < <(find "${CUR_PLATFORM_DIR}/providers" -mindepth 1 -maxdepth 1 -type d -printf "%f\0" )
+  for CUR_PLATFORM_PROVIDER in "${CUR_PLATFORM_PROVIDERS[@]}"; do
+    if [[ ! "${PLATFORM_PROVIDERS[$CUR_PLATFORM_PROVIDER]+_}" ]]; then
+      # TODO check here if config repo has version override for this provider
+      PLATFORM_PROVIDERS[$CUR_PLATFORM_PROVIDER]="$(cat "${CUR_PLATFORM_DIR}/providers/${CUR_PLATFORM_PROVIDER}/versions/provider.txt")"
+    fi
+  done
+  PLATFORM_DIRS+=("${CUR_PLATFORM_DIR}")
+done
+echo "Done collecting platforms."
+
+echo "Collecting providers..."
+for PROVIDER_NAME in "${!PLATFORM_PROVIDERS[@]}"; do
+  PROVIDER_VERSION="${PLATFORM_PROVIDERS[$PROVIDER_NAME]}"
+  PROVIDER_CACHE_DIR="${CACHE_DIR}/providers/${PROVIDER_NAME}/${PROVIDER_VERSION}"
+  if [[ ! -d "${PROVIDER_CACHE_DIR}" ]]; then # If provider release artifact has not been cached before
+    # Download zip file containing generated .ts and .json files
+    # Unzip can't handle stdin as input, so DL to temp file. TODO consider using BusyBox's unzip, as showed in https://unix.stackexchange.com/questions/2690/how-to-redirect-output-of-wget-as-input-to-unzip
+    PROVIDER_DL_FILE="$(mktemp -u)"
+    (curl -sSL --output "${PROVIDER_DL_FILE}" 'https://github.com/DysonBubble/stellevo-tf-provider-'"${PROVIDER_NAME}"'/releases/download/'"${PROVIDER_VERSION}"'/provider.zip' \
+      && mkdir -p "${PROVIDER_CACHE_DIR}" \
+      && unzip "${PROVIDER_DL_FILE}"  -d "${PROVIDER_CACHE_DIR}" ) || "${SCRIPT_DIR}/build-provider-locally.sh" "${PROVIDER_DL_DIR}"
+  fi
+    
+  # We now have provider code in subfolders within "${PROVIDER_DL_DIR}/outputs"
+  mkdir -p "${TARGET_DIR}/src/api/providers/${PROVIDER_NAME}"
+  cp --preserve=timestamps -r "${PROVIDER_CACHE_DIR}/outputs/api/." "${TARGET_DIR}/src/api/providers/${PROVIDER_NAME}/"
+  mkdir -p "${TARGET_DIR}/src/codegen/providers/${PROVIDER_NAME}"
+  cp --preserve=timestamps -r "${PROVIDER_CACHE_DIR}/outputs/codegen/." "${TARGET_DIR}/src/codegen/providers/${PROVIDER_NAME}/"
+  rm -rf "${PROVIDER_DL_DIR}"
+done
+echo "Done collecting providers"
+
+echo "Generating TS and other files..."
 NODE_IMAGE="node:$(cat "${CONFIG_REPO_DIR}/versions/run/node.txt")"
 CODEGEN_DIR="${ASSETS_DIR}/codegen"
 if [[ ! -d "${CODEGEN_DIR}/node_modules" ]]; then
@@ -39,127 +93,33 @@ if [[ ! -d "${CODEGEN_DIR}/node_modules" ]]; then
     "${NODE_IMAGE}" \
     install
 fi
-
-# 3. Install the NPM modules for the target directory
-docker run \
-  --rm \
-  -v "${TARGET_DIR}/:/project/:rw" \
-  -w /project/ \
-  --entrypoint npm \
-  "${NODE_IMAGE}" \
-  install
-
-# 4. Collect platforms
-readarray -d '' ALL_PLATFORM_NAMES < <(find "${CONFIG_REPO_DIR}/platforms" -mindepth 1 -maxdepth 1 -type d -printf "%f\0")
-declare -A PLATFORM_PROVIDERS
-PLATFORM_DIRS=()
-for PLATFORM_NAME in "${ALL_PLATFORM_NAMES[@]}"; do
-  CUR_PLATFORM_DIR="$(echo -n "$(cat "${CONFIG_REPO_DIR}/platforms/${PLATFORM_NAME}/location.txt" | head -n 1)")"
-  readarray -d '' CUR_PLATFORM_PROVIDERS < <(find "${CUR_PLATFORM_DIR}/providers" -mindepth 1 -maxdepth 1 -type d -printf "%f\0" )
-  for CUR_PLATFORM_PROVIDER in "${CUR_PLATFORM_PROVIDERS[@]}"; do
-    if [[ ! "${PLATFORM_PROVIDERS[$CUR_PLATFORM_PROVIDER]+_}" ]]; then
-      # TODO check here if config repo has version override for this provider
-      PLATFORM_PROVIDERS[$CUR_PLATFORM_PROVIDER]="$(cat "${CUR_PLATFORM_DIR}/providers/${CUR_PLATFORM_PROVIDER}/versions/provider.txt")"
-    fi
-  done
-  PLATFORM_DIRS+=("${CUR_PLATFORM_DIR}")
-done
-
-# 5. Build provider images which will have output files, and copy the files from image to target dir
-for PROVIDER_NAME in "${!PLATFORM_PROVIDERS[@]}"; do
-  # Download zip file containing generated .ts and .json files
-  PROVIDER_DL_DIR="$(mktemp -d)"
-  PROVIDER_VERSION="${PLATFORM_PROVIDERS[$PROVIDER_NAME]}"
-  (curl -sSL --output "${PROVIDER_DL_DIR}/provider.zip" 'https://github.com/DysonBubble/stellevo-tf-provider-'"${PROVIDER_NAME}"'/releases/download/'"${PROVIDER_VERSION}"'/provider.zip' \
-    && unzip "${PROVIDER_DL_DIR}/provider.zip" -d "${PROVIDER_DL_DIR}" ) || "${SCRIPT_DIR}/build-provider-locally.sh" "${PROVIDER_DL_DIR}"
-    
-  # We now have provider code in subfolders within "${PROVIDER_DL_DIR}/outputs"
-  mkdir -p "${TARGET_DIR}/src/api/providers/${PROVIDER_NAME}"
-  cp -r "${PROVIDER_DL_DIR}/outputs/api/." "${TARGET_DIR}/src/api/providers/${PROVIDER_NAME}/"
-  mkdir -p "${TARGET_DIR}/src/codegen/providers/${PROVIDER_NAME}"
-  cp -r "${PROVIDER_DL_DIR}/outputs/codegen/." "${TARGET_DIR}/src/codegen/providers/${PROVIDER_NAME}/"
-  rm -rf "${PROVIDER_DL_DIR}"
-done
-
-# 6. Generate files in api/common/platforms/resources folder
-# Creating symlinks from one docker volume to another, inside a docker volume, is causing some havoc, so let's just run npm-install...
-# The 'ln -s /project_node_modules/ node_modules' command for says error (ln: node_modules/project_node_modules: Read-only file system), but still creates symlink... But then node executable can't find the modules anyway.
-# And copying the node_modules takes ages
-mkdir -p "${TARGET_DIR}/src/api/common/platforms/resources" "${TARGET_DIR}/src/api/common/platforms/schemas"
 docker run \
   --rm \
   -v "${CODEGEN_DIR}/:/project/:rw" \
-  -v "${TARGET_DIR}/src/api/common/platforms/:/output/:rw" \
+  -v "${TARGET_DIR}/:/output/:rw" \
+  -v "${CONFIG_REPO_DIR}/:/config/:ro" \
   --entrypoint sh \
   -w /project/ \
   "${NODE_IMAGE}" \
-  -c 'echo '"'"'export const allProviders = [...new Set<string>(['"$(printf '"%s", ' "${!PLATFORM_PROVIDERS[@]}")"'])];'"'"' > src/providers/providers.ts && node node_modules/.bin/ts-node src/providers/resources/generate-ts.ts > /output/resources/index.ts && node node_modules/.bin/ts-node src/providers/resources/generate-tsconfig.ts > /output/resources/tsconfig.json && node node_modules/.bin/ts-node src/providers/schemas/generate-ts.ts > /output/schemas/index.ts && node node_modules/.bin/ts-node src/providers/schemas/generate-tsconfig.ts > /output/schemas/tsconfig.json'
+  -c 'node --unhandled-rejections=strict node_modules/.bin/ts-node src/main.ts'
+echo "Done with generating TS and other files."
 
-# 7. Generate files in codegen/common/platform folder
-docker run \
-  --rm \
-  -v "${CODEGEN_DIR}/:/project/:ro" \
-  -v "${TARGET_DIR}/src/codegen/common/platforms/:/output/:rw" \
-  --entrypoint sh \
-  -w /project/ \
-  "${NODE_IMAGE}" \
-  -c 'node node_modules/.bin/ts-node src/providers/codegen/generate-ts.ts > /output/index.ts && node node_modules/.bin/ts-node src/providers/codegen/generate-tsconfig.ts > /output/tsconfig.json'
-
-for PLATFORM_INDEX in "${!ALL_PLATFORM_NAMES[@]}"; do
-  # 8. Copy platform code files to platforms/<provider> folder
-  TARGET_PLATFORM_DIR="${TARGET_DIR}/src/platforms/${ALL_PLATFORM_NAMES[PLATFORM_INDEX]}"
-  mkdir -p "${TARGET_PLATFORM_DIR}"
-  cp -r "${PLATFORM_DIRS[PLATFORM_INDEX]}/api/src/." "${TARGET_PLATFORM_DIR}"
-
-  # 9. Generate tsconfig.json files for platform
-  # find example_repo_platform/api/src -mindepth 1 -type f -printf '"%P",'
-  # TODO when platforms can depend on each other, this generation will make more sense
-  docker run \
-    --rm \
-    -v "${CODEGEN_DIR}/:/project/:rw" \
-    -v "${TARGET_PLATFORM_DIR}/:/output/:rw" \
-    --entrypoint sh \
-    -w /project/ \
-    "${NODE_IMAGE}" \
-    -c 'echo '"'"'export const dependantPlatforms = [...new Set<string>([])];'"'"' > src/platforms/platforms.ts && node node_modules/.bin/ts-node src/platforms/generate-tsconfig.ts > /output/tsconfig.json'
-done
-
-# 10. Copy config code files to config folder
 CONFIG_FILES_DIR="${CONFIG_REPO_DIR}/src/config"
 if [[ "${TARGET_DIR}" != "${CONFIG_REPO_DIR}" ]]; then
+  echo "Copying configuration TS files to target folder..."
   readarray -d '' ALL_CONFIG_FILES < <(find "${CONFIG_FILES_DIR}" -name '*.ts' -printf "%P\0")
   TARGET_CONFIG_DIR="${TARGET_DIR}/src/config"
   mkdir -p "${TARGET_CONFIG_DIR}"
   # We must do cd for cp to work properly. We could spawn new shell and do cd within, but then passing array argument would be pure hell.
   OLD_CUR_DIR="$(pwd)"
-  cd "${CONFIG_FILES_DIR}/"; printf '%s\0' "${ALL_CONFIG_FILES[@]}" | xargs -0 cp --parent -t "${TARGET_CONFIG_DIR}"; cd "${OLD_CUR_DIR}"
+  cd "${CONFIG_FILES_DIR}/"; printf '%s\0' "${ALL_CONFIG_FILES[@]}" | xargs -0 cp --preserve=timestamps --parent -t "${TARGET_CONFIG_DIR}"; cd "${OLD_CUR_DIR}"
+  echo "Done with copying configuration TS files to target folder"
 fi
-
-# 11. Generate tsconfig.json file for config exports
-# TODO need to do this also for config libs
-docker run \
-  --rm \
-  -v "${CODEGEN_DIR}/:/project/:rw" \
-  -v "${TARGET_DIR}/src/config/exports/:/output/:rw" \
-  --entrypoint sh \
-  -w /project/ \
-  "${NODE_IMAGE}" \
-  -c 'echo '"'"'export const allPlatforms = [...new Set<string>(['"$(printf '"%s", ' "${ALL_PLATFORM_NAMES[@]}")"'])];'"'"' > src/config/platforms.ts && node node_modules/.bin/ts-node src/config/generate-tsconfig.ts > /output/tsconfig.json'
-
-# 12. Generate entrypoint TS file
-readarray -d '' ALL_CONFIG_EXPORT_FILES < <(find "${CONFIG_FILES_DIR}/exports" -name '*.ts' -printf "%P\0")
-docker run \
-  --rm \
-  -v "${CODEGEN_DIR}/:/project/:rw" \
-  -v "${TARGET_DIR}/src/entrypoint/:/output/:rw" \
-  --entrypoint sh \
-  -w /project/ \
-  "${NODE_IMAGE}" \
-  -c 'echo '"'"'export const allConfigFilePaths = [...new Set<string>(['"$(printf '"%s", ' "${ALL_CONFIG_EXPORT_FILES[@]}")"'])];'"'"' > src/entrypoint/config-paths.ts && node node_modules/.bin/ts-node src/entrypoint/generate-ts.ts > /output/index.ts'
 
 # 13. Run entrypoint TS file.
 # Note that ts-node *deletes* composite option from tsconfig ( https://github.com/TypeStrong/ts-node/issues/811 , the quoted code in the issue), so all validation that various files don't reference forbidden ones is gone.
 # Therefore we compile using tsc + run created JS using node.
+echo "Compiling TS code and generating TF code..."
 docker run \
   --rm \
   -v "${TARGET_DIR}/:/project/:rw" \
@@ -167,4 +127,5 @@ docker run \
   -w /project/ \
   "${NODE_IMAGE}" \
   -c \
-  'node node_modules/.bin/tsc --build && mkdir -p tf_out && node --unhandled-rejections=strict ts_out/entrypoint'
+  'npm install && node node_modules/.bin/tsc --build && mkdir -p tf_out && node --unhandled-rejections=strict --experimental-specifier-resolution=node ts_out/entrypoint'
+echo "Done with compiling TS code and generating TF code."
