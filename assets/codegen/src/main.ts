@@ -4,26 +4,10 @@ import { Dirent } from "fs";
 import * as providers_resources from "./providers/resources";
 import * as providers_schemas from "./providers/schemas";
 import * as providers_cg from "./providers/codegen";
-import * as platforms from "./platforms";
-import * as config from "./config";
-import * as ep from "./entrypoint";
-import * as pkg from "./package";
-
-// Things we need to generate:
-// package.json
-// ts files which aggregate schemas from all providers, and tsconfig files for them
-// ts file which aggregates custom union schema handling for all providers, and tsconfig file for it
-// tsconfig file for platform references (this is not yet supported)
-// tsconfig file for configuration exports (src/config/exports folder)
-// entrypoint ts file and tsconfig file for it.
-
-
-// export const allPlatforms = [...new Set<string>(["test-platform", ])];
-// export const allConfigFilePaths = [...new Set<string>(["test-folder/another.ts", "testing.ts", ])];
-// export const dependantPlatforms = [...new Set<string>([])];
-// export const allProviders = [...new Set<string>(["azuread", ])];
-
-// JSON.stringify( GenerateCommonPlatformTSConfig( [...new Set<string>( dependantPlatformImport.dependantPlatforms )] ), undefined, 2 )
+import * as platforms from "./platforms/index";
+import * as config from "./config/index";
+import * as ep from "./entrypoint/index";
+import * as pkg from "./package/index";
 
 const IfDirExists = async (dir: string) => {
   try {
@@ -70,10 +54,14 @@ const ProcessProviders = async (providersDir: string) => {
   ];
 };
 
+//TODO generate index.ts for each platform (export * from "./x/y";)
+
 const ProcessPlatforms = async (platformsDir: string) => {
   const platformNames = await ReadDirectoriesAsSet(platformsDir);
   return [
-      ...platformNames.map(platform => ({ path: `src/platforms/${platform}/tsconfig.json`, content: platforms.GenerateTSConfig([])})),
+      ...platformNames.map(platform => ({ path: `src/platforms-src/${platform}/tsconfig.json`, content: platforms.GenerateSrcTSConfig([])})),
+      ...await Promise.all(platformNames.map(async platform => ({ path: `src/platforms/${platform}/index.ts`, content: platforms.GenerateTS(platform, await ReadFilesRecursively(`/output/src/platforms-src/${platform}/`, file => file.name.endsWith(".ts")))}))),
+      ...platformNames.map(platform => ({ path: `src/platforms/${platform}/tsconfig.json`, content: platforms.GenerateTSConfig(platform)})),
       { path: "src/config/exports/tsconfig.json", content: config.GenerateTSConfig(platformNames) }
   ];
 };
@@ -83,7 +71,7 @@ const ProcessEntrypoint = async (configsDir: string) => {
   return [
     { path: "src/entrypoint/index.ts", content: ep.GenerateTypeScript(configFiles)}
   ];
-}
+};
 
 const ProcessPackageJson = async (packagesDir: string) => {
   const deps = await ReadFilesAndContents(`${packagesDir}runtime/`);
@@ -91,12 +79,12 @@ const ProcessPackageJson = async (packagesDir: string) => {
   return [
     { path: "package.json", content: pkg.GeneratePackageJSON(deps, devDeps)}
   ];
-}
+};
 
 const Main = async () => await Promise.all(
   (await Promise.all([
     ProcessProviders("/output/src/api/providers/"),
-    ProcessPlatforms("/output/src/platforms/"),
+    ProcessPlatforms("/output/src/platforms-src/"),
     ProcessEntrypoint("/output/src/config/exports/"),
     ProcessPackageJson("/config/packages/")
   ]))

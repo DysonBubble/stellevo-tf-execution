@@ -47,6 +47,10 @@ for PLATFORM_NAME in "${ALL_PLATFORM_NAMES[@]}"; do
     # Location is directory
     CUR_PLATFORM_DIR="$(readlink -f "$(realpath "${CUR_PLATFORM_DIR}")")"
   fi
+  TARGET_PLATFORM_DIR="${TARGET_DIR}/src/platforms-src/${PLATFORM_NAME}"
+  mkdir -p "${TARGET_PLATFORM_DIR}"
+  cp --preserve=timestamps -r "${CUR_PLATFORM_DIR}/api/src/." "${TARGET_PLATFORM_DIR}"
+  mkdir -p "${TARGET_DIR}/src/platforms/${PLATFORM_NAME}"
   readarray -d '' CUR_PLATFORM_PROVIDERS < <(find "${CUR_PLATFORM_DIR}/providers" -mindepth 1 -maxdepth 1 -type d -printf "%f\0" )
   for CUR_PLATFORM_PROVIDER in "${CUR_PLATFORM_PROVIDERS[@]}"; do
     if [[ ! "${PLATFORM_PROVIDERS[$CUR_PLATFORM_PROVIDER]+_}" ]]; then
@@ -84,7 +88,6 @@ echo "Generating TS and other files..."
 NODE_IMAGE="node:$(cat "${CONFIG_REPO_DIR}/versions/run/node.txt")"
 CODEGEN_DIR="${ASSETS_DIR}/codegen"
 if [[ ! -d "${CODEGEN_DIR}/node_modules" ]]; then
-  # pre-2. Restore packages
   docker run \
     --rm \
     -v "${CODEGEN_DIR}/:/project/:rw" \
