@@ -5,7 +5,7 @@ export const GeneratePackageJSON = ( dependencies: TDependencyInfo, devDependenc
     "version": "0.1.0",
     "description": "This package contains TS code which can be invoked to generate TF code.",
     "dependencies": Object.assign( {
-      "io-ts": "^2.2.2",
+      "io-ts": "^2.2.4",
       "fp-ts": "^2.5.4"
     }, dependencies ),
     "devDependencies": Object.assign( {
